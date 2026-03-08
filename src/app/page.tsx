@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import Link from "next/link";
 
 type Sale = {
   id: string;
@@ -34,60 +34,57 @@ type ChartPoint = {
   profit: number;
 };
 
-const QUICK_MESSAGES = [
-  "Bonjour, oui l’article est toujours disponible.",
-  "Bonjour, l’envoi peut être fait rapidement.",
-  "Bonjour, le prix est déjà bien placé.",
-  "Bonjour, merci pour votre message. N’hésitez pas si vous avez une question précise.",
-  "Bonjour, oui je peux faire un petit geste raisonnable si l’achat est rapide.",
-  "Bonjour, l’article est en très bon état.",
-];
-
-export default function Home() {
+export default function HomePage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [userEmail, setUserEmail] = useState("");
   const [sales, setSales] = useState<Sale[]>([]);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [period, setPeriod] = useState<PeriodFilter>("month");
-  const [copiedMessage, setCopiedMessage] = useState("");
   const [finances, setFinances] = useState<FinanceRow | null>(null);
+  const [period, setPeriod] = useState<PeriodFilter>("month");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     const loadDashboard = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!session) {
-        router.push("/login");
-        return;
+        if (!session) {
+          router.push("/login");
+          return;
+        }
+
+        setUserEmail(session.user.email ?? "");
+
+        const { data: salesData, error: salesError } = await supabase
+          .from("sales")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .order("created_at", { ascending: false });
+
+        if (salesError) {
+          console.error("Erreur ventes:", salesError.message);
+        }
+
+        const { data: financesData, error: financesError } = await supabase
+          .from("finances")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
+
+        if (financesError) {
+          console.error("Erreur finances:", financesError.message);
+        }
+
+        setSales(salesData || []);
+        setFinances(financesData || null);
+      } catch (error) {
+        console.error("Erreur dashboard:", error);
+      } finally {
+        setLoading(false);
       }
-
-      setUserEmail(session.user.email ?? "");
-
-      const { data: salesData } = await supabase
-        .from("sales")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("created_at", { ascending: false });
-
-      const { data: financesData } = await supabase
-        .from("finances")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
-
-      if (salesData) {
-        setSales(salesData);
-      }
-
-      if (financesData) {
-        setFinances(financesData);
-      }
-
-      setLoading(false);
     };
 
     loadDashboard();
@@ -100,30 +97,24 @@ export default function Home() {
 
   const handleDeleteSale = async (saleId: string) => {
     const confirmed = window.confirm("Supprimer cette vente ?");
-
     if (!confirmed) return;
 
-    setDeletingId(saleId);
-
-    const { error } = await supabase.from("sales").delete().eq("id", saleId);
-
-    if (!error) {
-      setSales((prev) => prev.filter((sale) => sale.id !== saleId));
-    } else {
-      alert("Erreur lors de la suppression.");
-    }
-
-    setDeletingId(null);
-  };
-
-  const handleCopyMessage = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedMessage("Message copié.");
-      setTimeout(() => setCopiedMessage(""), 1500);
-    } catch {
-      setCopiedMessage("Impossible de copier.");
-      setTimeout(() => setCopiedMessage(""), 1500);
+      setDeletingId(saleId);
+
+      const { error } = await supabase.from("sales").delete().eq("id", saleId);
+
+      if (error) {
+        alert("Erreur lors de la suppression : " + error.message);
+        return;
+      }
+
+      setSales((prev) => prev.filter((sale) => sale.id !== saleId));
+    } catch (error) {
+      console.error(error);
+      alert("Erreur inattendue.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -180,45 +171,63 @@ export default function Home() {
     });
   }, [sales, period]);
 
-  const totalRevenue = useMemo(() => {
-    return filteredSales.reduce(
+  const stats = useMemo(() => {
+    const totalRevenue = filteredSales.reduce(
       (sum, sale) => sum + Number(sale.sale_price || 0),
       0
     );
-  }, [filteredSales]);
 
-  const totalProfit = useMemo(() => {
-    return filteredSales.reduce((sum, sale) => sum + Number(sale.profit || 0), 0);
-  }, [filteredSales]);
+    const totalProfit = filteredSales.reduce(
+      (sum, sale) => sum + Number(sale.profit || 0),
+      0
+    );
 
-  const averageBasket = useMemo(() => {
-    if (filteredSales.length === 0) return 0;
-    return totalRevenue / filteredSales.length;
-  }, [filteredSales, totalRevenue]);
+    const totalPurchase = filteredSales.reduce(
+      (sum, sale) => sum + Number(sale.purchase_price || 0),
+      0
+    );
 
-  const averageMargin = useMemo(() => {
-    if (filteredSales.length === 0 || totalRevenue === 0) return 0;
-    return (totalProfit / totalRevenue) * 100;
-  }, [filteredSales.length, totalProfit, totalRevenue]);
+    const totalFees = filteredSales.reduce(
+      (sum, sale) => sum + Number(sale.fees || 0),
+      0
+    );
 
-  const importedSalesCount = useMemo(() => {
-    return filteredSales.filter(
+    const averageSale = filteredSales.length
+      ? totalRevenue / filteredSales.length
+      : 0;
+
+    const averageProfit = filteredSales.length
+      ? totalProfit / filteredSales.length
+      : 0;
+
+    const averageMargin = totalRevenue ? (totalProfit / totalRevenue) * 100 : 0;
+
+    const importedCount = filteredSales.filter(
       (sale) => sale.source === "vinted_orders_import"
     ).length;
+
+    const bestSale =
+      filteredSales.length > 0
+        ? [...filteredSales].sort((a, b) => Number(b.profit) - Number(a.profit))[0]
+        : null;
+
+    return {
+      totalRevenue,
+      totalProfit,
+      totalPurchase,
+      totalFees,
+      averageSale,
+      averageProfit,
+      averageMargin,
+      importedCount,
+      bestSale,
+      salesCount: filteredSales.length,
+    };
   }, [filteredSales]);
 
-  const manualSalesCount = useMemo(() => {
-    return filteredSales.filter(
-      (sale) => sale.source !== "vinted_orders_import"
-    ).length;
-  }, [filteredSales]);
-
-  const topSale = useMemo(() => {
-    if (filteredSales.length === 0) return null;
-    return [...filteredSales].sort(
-      (a, b) => Number(b.profit) - Number(a.profit)
-    )[0];
-  }, [filteredSales]);
+  const recentSales = useMemo(() => {
+    return [...sales].slice(0, 8);
+  }, [sales]);
 
   const chartData = useMemo(() => {
     const map = new Map<string, ChartPoint>();
@@ -262,48 +271,15 @@ export default function Home() {
     return Array.from(map.values());
   }, [filteredSales, period]);
 
-  const monthlyOverview = useMemo(() => {
-    const map = new Map<string, ChartPoint>();
-
-    sales.forEach((sale) => {
-      const date = getSaleDate(sale);
-      const label = date.toLocaleDateString("fr-FR", {
-        month: "short",
-        year: "2-digit",
-      });
-
-      const current = map.get(label) || {
-        label,
-        revenue: 0,
-        profit: 0,
-      };
-
-      current.revenue += Number(sale.sale_price || 0);
-      current.profit += Number(sale.profit || 0);
-
-      map.set(label, current);
-    });
-
-    return Array.from(map.values()).slice(-8);
-  }, [sales]);
-
   const maxChartValue = useMemo(() => {
     const allValues = chartData.flatMap((item) => [item.revenue, item.profit]);
     return Math.max(...allValues, 1);
   }, [chartData]);
 
-  const maxMonthlyValue = useMemo(() => {
-    const allValues = monthlyOverview.flatMap((item) => [
-      item.revenue,
-      item.profit,
-    ]);
-    return Math.max(...allValues, 1);
-  }, [monthlyOverview]);
-
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-black text-white">
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-950 px-6 py-4 text-sm text-zinc-400">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-950 px-6 py-4 text-sm text-zinc-300">
           Chargement du tableau de bord...
         </div>
       </main>
@@ -319,15 +295,15 @@ export default function Home() {
               <p className="text-[11px] uppercase tracking-[0.35em] text-red-500">
                 Premium Revendeur OS
               </p>
-
               <h1 className="mt-3 text-3xl font-bold sm:text-5xl">
                 Tableau de bord revendeur
               </h1>
-
-              <p className="mt-3 max-w-3xl text-sm text-zinc-400 sm:text-base">
-                Bienvenue <span className="text-white">{username}</span>. Gère
-                tes ventes, tes imports Vinted, tes montants financiers et tes
-                messages rapides dans une interface premium rouge et noire.
+              <p className="mt-3 max-w-4xl text-sm leading-6 text-zinc-400 sm:text-base">
+                Bienvenue {username}. Cette page te donne une vraie vue de pilotage
+                de ton activité : statistiques, filtres par période, graphique de
+                performance, finances manuelles et ventes récentes. Le but est de
+                garder à la fois une lecture globale en haut et le détail réel des
+                ventes en bas, sans perdre la vue opérationnelle.
               </p>
             </div>
 
@@ -343,35 +319,35 @@ export default function Home() {
                 href="/imports"
                 className="rounded-2xl border border-zinc-700 bg-black px-5 py-3 text-sm font-semibold text-white transition hover:border-red-500 hover:text-red-400"
               >
-                Importer Vinted
+                Imports Vinted
               </Link>
 
               <Link
                 href="/finances"
                 className="rounded-2xl border border-zinc-700 bg-black px-5 py-3 text-sm font-semibold text-white transition hover:border-red-500 hover:text-red-400"
               >
-                Modifier les montants
+                Finances
               </Link>
 
               <Link
                 href="/messages"
                 className="rounded-2xl border border-zinc-700 bg-black px-5 py-3 text-sm font-semibold text-white transition hover:border-red-500 hover:text-red-400"
               >
-                Messages clients
+                Messages
               </Link>
 
               <Link
                 href="/ai"
-                className="rounded-2xl border border-zinc-700 bg-black px-5 py-3 text-sm font-semibold text-white transition hover:border-red-500 hover:text-red-400"
+                className="rounded-2xl border border-red-500 bg-black px-5 py-3 text-sm font-semibold text-red-400 transition hover:bg-red-500 hover:text-white"
               >
-                Analyse IA
+                Assistant IA
               </Link>
 
               <button
                 onClick={handleLogout}
-                className="rounded-2xl border border-red-500 px-5 py-3 text-sm font-semibold text-red-400 transition hover:bg-red-500 hover:text-white"
+                className="rounded-2xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-white transition hover:border-red-500 hover:text-red-400"
               >
-                Se déconnecter
+                Déconnexion
               </button>
             </div>
           </div>
@@ -397,26 +373,69 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
-          <StatCard title="Chiffre d'affaires" value={`${totalRevenue.toFixed(2)} €`} subtitle={`Période : ${labelForPeriod(period)}`} />
-          <StatCard title="Bénéfice" value={`${totalProfit.toFixed(2)} €`} subtitle="Profit calculé automatiquement" />
-          <StatCard title="Ventes" value={`${filteredSales.length}`} subtitle="Sur la période choisie" />
-          <StatCard title="Panier moyen" value={`${averageBasket.toFixed(2)} €`} subtitle="Montant moyen par vente" />
-          <StatCard title="Marge moyenne" value={`${averageMargin.toFixed(1)} %`} subtitle="Rentabilité globale" />
-          <StatCard title="Imports Vinted" value={`${importedSalesCount}`} subtitle="Ventes importées" />
-          <StatCard title="Ventes manuelles" value={`${manualSalesCount}`} subtitle="Ajoutées à la main" />
+        <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
           <StatCard
-            title="Top bénéfice"
-            value={topSale ? `${Number(topSale.profit).toFixed(2)} €` : "0 €"}
-            subtitle={topSale ? topSale.product_name : "Aucune vente"}
+            title="Ventes"
+            value={`${stats.salesCount}`}
+            subtitle={`Période : ${labelForPeriod(period)}`}
+          />
+          <StatCard
+            title="CA total"
+            value={`${stats.totalRevenue.toFixed(2)} €`}
+            subtitle="Chiffre d’affaires sur la période sélectionnée"
+          />
+          <StatCard
+            title="Profit total"
+            value={`${stats.totalProfit.toFixed(2)} €`}
+            subtitle="Bénéfice cumulé de la période sélectionnée"
+          />
+          <StatCard
+            title="Marge moyenne"
+            value={`${stats.averageMargin.toFixed(1)} %`}
+            subtitle="Rentabilité moyenne calculée automatiquement"
+          />
+          <StatCard
+            title="Panier moyen"
+            value={`${stats.averageSale.toFixed(2)} €`}
+            subtitle="Montant moyen par vente"
+          />
+          <StatCard
+            title="Profit moyen"
+            value={`${stats.averageProfit.toFixed(2)} €`}
+            subtitle="Bénéfice moyen par vente"
+          />
+          <StatCard
+            title="Imports Vinted"
+            value={`${stats.importedCount}`}
+            subtitle="Ventes importées dans la période"
+          />
+          <StatCard
+            title="Top vente"
+            value={
+              stats.bestSale ? `${Number(stats.bestSale.profit).toFixed(2)} €` : "0 €"
+            }
+            subtitle={
+              stats.bestSale
+                ? stats.bestSale.product_name
+                : "Aucune vente détectée"
+            }
           />
         </section>
 
         <section className="mt-6 grid gap-4 lg:grid-cols-3">
           <Panel title="Finances manuelles">
-            <InfoRow label="Argent en attente" value={`${Number(finances?.pending_balance || 0).toFixed(2)} €`} />
-            <InfoRow label="Argent disponible" value={`${Number(finances?.available_balance || 0).toFixed(2)} €`} />
-            <InfoRow label="Argent transféré" value={`${Number(finances?.total_withdrawn || 0).toFixed(2)} €`} />
+            <InfoRow
+              label="Argent en attente"
+              value={`${Number(finances?.pending_balance || 0).toFixed(2)} €`}
+            />
+            <InfoRow
+              label="Argent disponible"
+              value={`${Number(finances?.available_balance || 0).toFixed(2)} €`}
+            />
+            <InfoRow
+              label="Argent transféré"
+              value={`${Number(finances?.total_withdrawn || 0).toFixed(2)} €`}
+            />
             <Link
               href="/finances"
               className="inline-block rounded-xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-white transition hover:border-red-500 hover:text-red-400"
@@ -425,48 +444,98 @@ export default function Home() {
             </Link>
           </Panel>
 
-          <Panel title="Résumé activité">
-            <InfoRow label="Email connecté" value={userEmail || "Non défini"} />
-            <InfoRow label="Ventes totales" value={`${sales.length}`} />
-            <InfoRow
-              label="Montant total vendu"
-              value={`${sales.reduce((sum, sale) => sum + Number(sale.sale_price || 0), 0).toFixed(2)} €`}
-            />
-            <InfoRow
-              label="Profit total"
-              value={`${sales.reduce((sum, sale) => sum + Number(sale.profit || 0), 0).toFixed(2)} €`}
-            />
+          <Panel title="Lecture rapide">
+            <p className="text-sm leading-6 text-zinc-300">
+              Tu peux maintenant filtrer tes résultats par jour, semaine, mois,
+              année ou sur l’ensemble des données. Cela évite de mélanger les
+              chiffres globaux avec les performances récentes. En haut tu as la
+              synthèse, au milieu le graphique, et en bas les ventes concrètes.
+            </p>
           </Panel>
 
-          <Panel title="Messages à copier">
-            <div className="space-y-3">
-              {QUICK_MESSAGES.map((msg, index) => (
-                <button
-                  key={`${msg}-${index}`}
-                  onClick={() => handleCopyMessage(msg)}
-                  className="w-full rounded-2xl border border-zinc-800 bg-black/50 px-4 py-3 text-left text-sm text-zinc-300 transition hover:border-red-500 hover:text-white"
-                >
-                  {msg}
-                </button>
-              ))}
-            </div>
-            {copiedMessage && (
-              <div className="rounded-xl border border-zinc-800 bg-black px-4 py-3 text-sm text-zinc-300">
-                {copiedMessage}
-              </div>
-            )}
+          <Panel title="Assistant IA">
+            <p className="text-sm leading-6 text-zinc-300">
+              L’assistant IA reste intégré au tableau de bord et permet
+              d’analyser tes chiffres, ta marge, ton pricing et ta stratégie
+              d’achat revente. Tu peux l’utiliser pour réfléchir comme un pro et
+              transformer tes données en décisions utiles.
+            </p>
+
+            <Link
+              href="/ai"
+              className="inline-block rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-red-500"
+            >
+              Ouvrir l’assistant IA
+            </Link>
           </Panel>
         </section>
 
+        <section className="mt-6">
+          <ChartPanel
+            title={`Graphique ${labelForPeriod(period).toLowerCase()}`}
+            data={chartData}
+            maxValue={maxChartValue}
+          />
+        </section>
+
         <section className="mt-6 grid gap-4 lg:grid-cols-2">
-          <ChartPanel title={`Graphique ${labelForPeriod(period).toLowerCase()}`} data={chartData} maxValue={maxChartValue} />
-          <ChartPanel title="Évolution mensuelle" data={monthlyOverview} maxValue={maxMonthlyValue} />
+          <Panel title="Ventes récentes">
+            {recentSales.length === 0 ? (
+              <p className="text-sm text-zinc-400">
+                Aucune vente récente disponible.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {recentSales.map((sale) => (
+                  <div
+                    key={sale.id}
+                    className="rounded-2xl border border-zinc-800 bg-black/40 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-medium text-white">{sale.product_name}</p>
+                        <p className="mt-1 text-sm text-zinc-400">
+                          Vente: {Number(sale.sale_price).toFixed(2)} € • Profit:{" "}
+                          {Number(sale.profit).toFixed(2)} €
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {formatSaleDate(sale.sale_date || sale.created_at)}
+                        </p>
+                      </div>
+
+                      <Link
+                        href={`/sales/new/edit/${sale.id}`}
+                        className="rounded-lg border border-blue-500 px-3 py-2 text-xs text-blue-400 transition hover:bg-blue-500 hover:text-white"
+                      >
+                        Modifier
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Résumé métier">
+            <p className="text-sm leading-6 text-zinc-300">
+              Cette partie complète la lecture du haut de page. Le graphique sert
+              à visualiser l’évolution du chiffre d’affaires et du bénéfice sur
+              la période choisie, tandis que le bloc de ventes récentes permet
+              de garder un accès direct aux opérations les plus proches dans le
+              temps. Tu ne perds donc ni la vision stratégique, ni l’aspect
+              concret de ton activité quotidienne.
+            </p>
+          </Panel>
         </section>
 
         <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-5 sm:p-6">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold sm:text-xl">Dernières ventes</h2>
-            <span className="text-sm text-zinc-400">{filteredSales.length} vente(s)</span>
+            <h2 className="text-lg font-semibold sm:text-xl">
+              Toutes les ventes de la période
+            </h2>
+            <span className="text-sm text-zinc-400">
+              {filteredSales.length} vente(s)
+            </span>
           </div>
 
           {filteredSales.length === 0 ? (
@@ -482,9 +551,7 @@ export default function Home() {
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="font-medium text-white">
-                        {sale.product_name}
-                      </p>
+                      <p className="font-medium text-white">{sale.product_name}</p>
 
                       <p className="mt-1 text-sm text-zinc-400">
                         Achat: {Number(sale.purchase_price).toFixed(2)} € • Vente:{" "}
@@ -513,7 +580,7 @@ export default function Home() {
 
                   <div className="mt-4 flex justify-end gap-2">
                     <Link
-                      href={`/sales/edit/${sale.id}`}
+                      href={`/sales/new/edit/${sale.id}`}
                       className="rounded-lg border border-blue-500 px-3 py-2 text-xs text-blue-400 transition hover:bg-blue-500 hover:text-white"
                     >
                       Modifier
@@ -582,11 +649,9 @@ function StatCard({
   subtitle: string;
 }) {
   return (
-    <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 shadow-[0_0_30px_rgba(220,38,38,0.04)]">
-      <p className="text-xs text-zinc-400 sm:text-sm">{title}</p>
-      <h3 className="mt-3 text-2xl font-semibold text-white sm:text-3xl">
-        {value}
-      </h3>
+    <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
+      <p className="text-sm text-zinc-400">{title}</p>
+      <h3 className="mt-3 text-3xl font-semibold text-white">{value}</h3>
       <p className="mt-2 text-xs text-red-400">{subtitle}</p>
     </div>
   );
@@ -601,7 +666,7 @@ function Panel({
 }) {
   return (
     <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 sm:p-6">
-      <h2 className="text-lg font-semibold sm:text-xl">{title}</h2>
+      <h2 className="text-lg font-semibold">{title}</h2>
       <div className="mt-5 space-y-3">{children}</div>
     </div>
   );
@@ -617,9 +682,7 @@ function InfoRow({
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-800 bg-black/50 px-4 py-3">
       <span className="text-sm text-zinc-400">{label}</span>
-      <span className="max-w-[60%] truncate text-right text-sm font-medium text-white">
-        {value}
-      </span>
+      <span className="text-sm font-medium text-white">{value}</span>
     </div>
   );
 }
@@ -643,17 +706,17 @@ function ChartPanel({
         </p>
       ) : (
         <div className="mt-5 overflow-x-auto">
-          <div className="flex min-h-[220px] min-w-[520px] items-end gap-4">
+          <div className="flex min-h-[240px] min-w-[520px] items-end gap-4">
             {data.map((item, index) => {
-              const revenueHeight = Math.max(10, (item.revenue / maxValue) * 140);
-              const profitHeight = Math.max(10, (item.profit / maxValue) * 140);
+              const revenueHeight = Math.max(12, (item.revenue / maxValue) * 160);
+              const profitHeight = Math.max(12, (item.profit / maxValue) * 160);
 
               return (
                 <div
                   key={`${item.label}-${index}`}
                   className="flex flex-1 flex-col items-center gap-2"
                 >
-                  <div className="flex h-[160px] items-end gap-2">
+                  <div className="flex h-[180px] items-end gap-2">
                     <div
                       className="w-4 rounded-t bg-zinc-500"
                       style={{ height: `${revenueHeight}px` }}
