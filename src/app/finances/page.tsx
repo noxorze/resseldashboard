@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function FinancesPage() {
   const router = useRouter();
@@ -14,63 +14,78 @@ export default function FinancesPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const loadData = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      router.push("/login");
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("finances")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .maybeSingle();
-
-    if (!error && data) {
-      setPending(Number(data.pending_balance || 0));
-      setAvailable(Number(data.available_balance || 0));
-      setWithdrawn(Number(data.total_withdrawn || 0));
-    }
-
-    setLoading(false);
-  };
-
   useEffect(() => {
-    loadData();
-  }, []);
+    const loadData = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-  const save = async () => {
-    setMessage("Sauvegarde...");
+        if (!session) {
+          router.push("/login");
+          return;
+        }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+        const { data, error } = await supabase
+          .from("finances")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
 
-    if (!session) {
-      setMessage("Tu dois être connecté.");
-      return;
-    }
+        if (error) {
+          setMessage("Erreur chargement : " + error.message);
+        }
 
-    const { error } = await supabase.from("finances").upsert(
-      {
-        user_id: session.user.id,
-        pending_balance: pending,
-        available_balance: available,
-        total_withdrawn: withdrawn,
-      },
-      {
-        onConflict: "user_id",
+        if (data) {
+          setPending(Number(data.pending_balance || 0));
+          setAvailable(Number(data.available_balance || 0));
+          setWithdrawn(Number(data.total_withdrawn || 0));
+        }
+      } catch (error) {
+        console.error("Erreur finances:", error);
+        setMessage("Erreur lors du chargement.");
+      } finally {
+        setLoading(false);
       }
-    );
+    };
 
-    if (error) {
-      setMessage("Erreur sauvegarde : " + error.message);
-    } else {
+    loadData();
+  }, [router]);
+
+  const handleSave = async () => {
+    try {
+      setMessage("Sauvegarde...");
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        setMessage("Tu dois être connecté.");
+        return;
+      }
+
+      const { error } = await supabase.from("finances").upsert(
+        {
+          user_id: session.user.id,
+          pending_balance: pending,
+          available_balance: available,
+          total_withdrawn: withdrawn,
+        },
+        {
+          onConflict: "user_id",
+        }
+      );
+
+      if (error) {
+        setMessage("Erreur sauvegarde : " + error.message);
+        return;
+      }
+
       setMessage("Sauvegardé.");
+    } catch (error) {
+      console.error("Erreur sauvegarde finances:", error);
+      setMessage("Erreur inattendue.");
     }
   };
 
@@ -90,9 +105,7 @@ export default function FinancesPage() {
             <p className="text-xs uppercase tracking-[0.35em] text-red-500">
               Premium Revendeur OS
             </p>
-            <h1 className="mt-3 text-3xl font-bold">
-              Gestion financière
-            </h1>
+            <h1 className="mt-3 text-3xl font-bold">Gestion financière</h1>
             <p className="mt-2 text-sm text-zinc-400">
               Modifie facilement les montants manuels de ton compte.
             </p>
@@ -108,10 +121,7 @@ export default function FinancesPage() {
 
         <div className="space-y-6">
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
-            <label className="text-sm text-zinc-400">
-              Argent en attente
-            </label>
-
+            <label className="text-sm text-zinc-400">Argent en attente</label>
             <input
               type="number"
               value={pending}
@@ -121,10 +131,7 @@ export default function FinancesPage() {
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
-            <label className="text-sm text-zinc-400">
-              Argent disponible
-            </label>
-
+            <label className="text-sm text-zinc-400">Argent disponible</label>
             <input
               type="number"
               value={available}
@@ -134,10 +141,7 @@ export default function FinancesPage() {
           </div>
 
           <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-6">
-            <label className="text-sm text-zinc-400">
-              Argent transféré
-            </label>
-
+            <label className="text-sm text-zinc-400">Argent transféré</label>
             <input
               type="number"
               value={withdrawn}
@@ -147,17 +151,13 @@ export default function FinancesPage() {
           </div>
 
           <button
-            onClick={save}
+            onClick={handleSave}
             className="rounded-xl bg-red-600 px-6 py-3 font-semibold text-white transition hover:bg-red-500"
           >
             Sauvegarder
           </button>
 
-          {message && (
-            <p className="text-sm text-zinc-400">
-              {message}
-            </p>
-          )}
+          {message && <p className="text-sm text-zinc-400">{message}</p>}
         </div>
       </div>
     </main>
