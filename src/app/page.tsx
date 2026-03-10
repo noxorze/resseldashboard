@@ -446,7 +446,15 @@ export default function HomePage() {
 
           <Panel title="Lecture rapide">
             <p className="text-sm leading-6 text-zinc-300">
-              De nouvelle mise à jours seront disponible ulterieurement, tu peux desormais filtrer tes ventes par jours, semaines, mois et années.. un agent ia est egalement la pour t'aider! - L'EQUIPE CTN
+              De nouvelles mises à jour seront disponibles prochainement !
+
+Vous pouvez désormais filtrer vos ventes par **jour, semaine, mois ou année** afin d’analyser plus facilement vos performances.
+
+Un **agent IA** est également disponible pour vous accompagner et vous aider à mieux comprendre vos données et optimiser la gestion de vos ventes.
+
+D’autres améliorations et fonctionnalités seront ajoutées au fil du temps afin de rendre le panel toujours plus complet et performant.
+
+— **L’équipe CTN**
             </p>
           </Panel>
 
