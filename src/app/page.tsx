@@ -446,10 +446,7 @@ export default function HomePage() {
 
           <Panel title="Lecture rapide">
             <p className="text-sm leading-6 text-zinc-300">
-              Tu peux maintenant filtrer tes résultats par jour, semaine, mois,
-              année ou sur l’ensemble des données. Cela évite de mélanger les
-              chiffres globaux avec les performances récentes. En haut tu as la
-              synthèse, au milieu le graphique, et en bas les ventes concrètes.
+              De nouvelle mise à jours seront disponible ulterieurement, tu peux desormais filtrer tes ventes par jours, semaines, mois et années.. un agent ia est egalement la pour t'aider! - L'EQUIPE CTN
             </p>
           </Panel>
 
